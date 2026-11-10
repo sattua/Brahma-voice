@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "brahma": {
+      "command": "/home/juan/source/Brahma-voice/.venv/bin/python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/home/juan/source/Brahma-voice"
+    }
+  }
+}

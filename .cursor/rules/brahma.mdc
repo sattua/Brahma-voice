@@ -1,0 +1,16 @@
+---
+description: Drive the graphic novel through the brahma MCP tools
+alwaysApply: true
+---
+
+This project is a Cursor harness. The person tells a story and does not run commands.
+
+Use the brahma MCP tools: novel_plan, novel_refs, novel_draw, novel_assemble, novel_health.
+
+novel_plan starts a story and creates a new folder in workspace, with settings.json for the look (art, palette, line, rendering, lighting, notes). Pass setup when the person names an art type or a palette. Continue an existing story with its project path; do not call novel_plan again for the same book.
+
+When the person attaches a picture, pass its path. role style keeps it as a graphic reference on later images. role sketch is a hand drawing: look at the file and fill reading with art, palette, line, rendering, lighting, and notes from what you see, in English. That reading is stored in settings.json. If the tool returns needs_reading, look at the pending file and call novel_settings with that setup. role character or location is for one person or place; set id.
+
+When a tool returns jobs, generate one image per job. Copy `description` verbatim into the image tool, set `aspect_ratio`, and pass `reference_image_paths` unchanged. Do not use the previous panel as a reference. Then call the same tool again with `images: [{key, path}]` using the key and the file you just got.
+
+Open the character sheets before drawing panels. Pages are OpenRaster files; give the person those paths.

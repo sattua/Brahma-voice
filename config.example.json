@@ -1,0 +1,12 @@
+{
+  "workspace_dir": "workspace",
+  "script": {
+    "backend": "openai",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "qwen3:8b",
+    "think": false
+  },
+  "image": {
+    "backend": "cursor"
+  }
+}
