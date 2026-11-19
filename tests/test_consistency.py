@@ -4,6 +4,7 @@ from brahma.consistency import (
     CHARACTER_WEIGHT,
     character_clause,
     character_sheet_prompt,
+    negative_prompt,
     panel_prompt,
     panel_references,
     stable_seed,
@@ -41,6 +42,16 @@ def _place() -> LocationSpec:
         appearance="old train station hall with high iron arches and a wet stone floor",
         lighting="cold overhead lamps",
     )
+
+
+def test_character_sheets_use_a_white_background():
+    style = _style()
+    style.negative = "white void, glossy plastic"
+    prompt = character_sheet_prompt(style, _person())
+    assert "plain flat white background" in prompt
+    assert "light-gray" not in prompt
+    assert "white void" not in negative_prompt(style, sheet=True)
+    assert "white void" in negative_prompt(style)
 
 
 def test_character_clause_is_identical_on_the_sheet_and_the_panel():

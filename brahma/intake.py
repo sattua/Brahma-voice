@@ -75,12 +75,22 @@ def import_images(
     return stored
 
 
-def uploaded_paths(root: Path, references: list[ImageRef], recipe: ImageRecipe) -> list[str]:
-    """Style and sketch pictures guide every image. A character or place picture guides its own sheets and panels."""
+FIGURE_KINDS = {"character", "turnaround", "poses", "panel"}
 
-    subjects = {item.key for item in recipe.references if item.role == "character"}
+
+def uploaded_paths(root: Path, references: list[ImageRef], recipe: ImageRecipe) -> list[str]:
+    """Which uploaded pictures travel with this job.
+
+    A style picture with no subject guides every image. A sketch or style picture that
+    names a subject is that character's drawing: it goes to that character's sheet,
+    turnaround, pose sheet, and panels, and never to a place plate or the style sample, where it
+    would paint the character into an empty landscape. A character or place picture
+    guides its own sheets and panels.
+    """
+
+    subjects = {item.key for item in recipe.references if item.role in {"character", "view"}}
     places = {item.key for item in recipe.references if item.role == "location"}
-    if recipe.kind == "character" and ":" in recipe.key:
+    if recipe.kind in {"character", "turnaround", "poses"} and ":" in recipe.key:
         subjects.add(recipe.key.split(":", 1)[1])
     if recipe.kind == "location" and ":" in recipe.key:
         places.add(recipe.key.split(":", 1)[1])
@@ -90,8 +100,11 @@ def uploaded_paths(root: Path, references: list[ImageRef], recipe: ImageRecipe) 
         if not full.is_file():
             continue
         if ref.role in {"style", "sketch"}:
-            chosen.append(str(full))
-        elif ref.role == "character" and recipe.kind in {"character", "panel"} and (not ref.subject or ref.subject in subjects):
+            if not ref.subject:
+                chosen.append(str(full))
+            elif recipe.kind in FIGURE_KINDS and ref.subject in subjects:
+                chosen.append(str(full))
+        elif ref.role == "character" and recipe.kind in FIGURE_KINDS and (not ref.subject or ref.subject in subjects):
             chosen.append(str(full))
         elif ref.role == "location" and recipe.kind in {"location", "panel"} and (not ref.subject or ref.subject in places):
             chosen.append(str(full))

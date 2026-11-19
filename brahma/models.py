@@ -7,7 +7,7 @@ Names and dialogue stay in the language of the story.
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -19,6 +19,44 @@ MAX_LOCATIONS = 4
 
 SHOTS = ("extreme-close", "close", "medium", "medium-wide", "wide", "establishing")
 ANGLES = ("eye-level", "low", "high", "over-shoulder", "dutch")
+# Turnaround columns, left to right. A panel picks the column that matches how the figure faces the camera.
+VIEWS = ("front", "three-quarter", "side", "back")
+SIDES = ("wearer_left", "wearer_right", "center")
+# How far below the frame the bottom of a figure's box may go.
+BOTTOM_OUT = 1.5
+
+_SIDE_ALIASES = {
+    "left": "wearer_left",
+    "izquierda": "wearer_left",
+    "wearer-left": "wearer_left",
+    "right": "wearer_right",
+    "derecha": "wearer_right",
+    "wearer-right": "wearer_right",
+    "centre": "center",
+    "middle": "center",
+    "centro": "center",
+}
+_VIEW_ALIASES = {
+    "frontal": "front",
+    "frente": "front",
+    "3/4": "three-quarter",
+    "three-quarters": "three-quarter",
+    "tres-cuartos": "three-quarter",
+    "profile": "side",
+    "perfil": "side",
+    "lado": "side",
+    "rear": "back",
+    "behind": "back",
+    "espalda": "back",
+}
+
+
+def normalize_view(value: object) -> str:
+    key = str(value or "").strip().lower().replace("_", "-").replace(" ", "-")
+    key = _VIEW_ALIASES.get(key, key)
+    if key not in VIEWS:
+        raise ValueError(f"view must be one of {', '.join(VIEWS)}")
+    return key
 
 _SHOT_ALIASES = {
     "close-up": "close",
@@ -69,6 +107,25 @@ class StyleSpec(BaseModel):
     notes: str = Field(default="", max_length=400)
 
 
+class Mark(BaseModel):
+    """Something that sits on one side of the body and must stay on that side in every picture."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    part: str = Field(min_length=1, max_length=80)
+    side: str = "center"
+    text: str = Field(min_length=3, max_length=200)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _side(cls, value: object) -> str:
+        key = str(value or "center").strip().lower().replace(" ", "_")
+        key = _SIDE_ALIASES.get(key, key)
+        if key not in SIDES:
+            raise ValueError(f"side must be one of {', '.join(SIDES)}")
+        return key
+
+
 class CharacterSpec(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -78,6 +135,10 @@ class CharacterSpec(BaseModel):
     appearance: str = Field(min_length=8, max_length=300)
     wardrobe: str = Field(min_length=3, max_length=200)
     distinguishing: str = Field(min_length=3, max_length=200)
+    body: str = Field(default="", max_length=160)
+    marks: list[Mark] = Field(default_factory=list, max_length=6)
+    poses: list[Annotated[str, Field(min_length=3, max_length=120)]] = Field(default_factory=list, max_length=6)
+    visual: bool = True
 
     @field_validator("id", mode="before")
     @classmethod
@@ -106,6 +167,31 @@ class DialogueLine(BaseModel):
     text: str = Field(min_length=1, max_length=240)
 
 
+class PanelFigure(BaseModel):
+    """Where one character stands in a page panel, as fractions of the frame, and what pose it holds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    character: str
+    box: list[float] = Field(default_factory=list)
+    pose: str = Field(default="", max_length=240)
+
+    @field_validator("character", mode="before")
+    @classmethod
+    def _character(cls, value: object) -> str:
+        return slug_id(value)
+
+    @field_validator("box")
+    @classmethod
+    def _box(cls, value: list[float]) -> list[float]:
+        if value and (
+            len(value) != 4
+            or not (0 <= value[0] < value[2] <= 1 and 0 <= value[1] < min(1.0, value[3]) and value[3] <= BOTTOM_OUT)
+        ):
+            raise ValueError(f"box is [left, top, right, bottom] as fractions inside 0..1 (the bottom may reach {BOTTOM_OUT})")
+        return value
+
+
 class PanelSpec(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -116,6 +202,22 @@ class PanelSpec(BaseModel):
     action: str = Field(min_length=3, max_length=400)
     dialogue: list[DialogueLine] = Field(default_factory=list, max_length=MAX_DIALOGUE)
     continuity: str = Field(default="", max_length=240)
+    facing: str = ""
+    figures: list[PanelFigure] = Field(default_factory=list, max_length=3)
+    horizon: float | None = Field(default=None, ge=0, le=1)
+    blocked: bool = False
+
+    @field_validator("facing", mode="before")
+    @classmethod
+    def _facing(cls, value: object) -> str:
+        if value is None or not str(value).strip():
+            return ""
+        return normalize_view(value)
+
+    def view(self) -> str:
+        if self.facing:
+            return self.facing
+        return "back" if self.angle == "over-shoulder" else "front"
 
     @field_validator("shot", mode="before")
     @classmethod

@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from brahma.effects import split_effects
 from brahma.errors import BrahmaError
 from brahma.models import Project, StoryPlan, StyleSpec
 
@@ -30,7 +31,11 @@ class ImageRef(BaseModel):
 
 
 class ProjectSettings(BaseModel):
-    """Global setup for one story. `art` is the medium; the palette is shared by every image."""
+    """Global setup for one story. `art` is the medium; the palette is shared by every image.
+
+    `effects` holds what the look named that is a filter (sparks, glow, fog, rain...). The
+    base pictures never see it; only a filter step reads it.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -41,7 +46,28 @@ class ProjectSettings(BaseModel):
     lighting: str = Field(min_length=3, max_length=160)
     negative: str = Field(default="", max_length=200)
     notes: str = Field(default="", max_length=400)
+    effects: list[str] = Field(default_factory=list, max_length=16)
     references: list[ImageRef] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _effects_out_of_the_look(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        effects = [str(item).strip() for item in data.get("effects") or [] if str(item).strip()]
+        for key in ("art", "palette", "line", "rendering", "lighting", "notes"):
+            value = data.get(key)
+            if not isinstance(value, str):
+                continue
+            clean, moved = split_effects(value)
+            if not moved:
+                continue
+            if len(clean) >= 3 or key == "notes":
+                data[key] = clean
+            effects.extend(item for item in moved if item not in effects)
+        data["effects"] = effects[:16]
+        return data
 
     def as_style(self) -> StyleSpec:
         return StyleSpec(
@@ -98,8 +124,9 @@ def overlay_look(base: dict, layer: dict | None) -> dict:
     return data
 
 
-def settings_from_look(data: dict, references: list[ImageRef]) -> ProjectSettings:
+def settings_from_look(data: dict, references: list[ImageRef], effects: list[str] | None = None) -> ProjectSettings:
     payload = {key: data[key] for key in READING_KEYS}
+    payload["effects"] = list(effects or [])
     payload["references"] = [item.model_dump() for item in references]
     try:
         return ProjectSettings.model_validate(payload)

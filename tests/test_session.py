@@ -34,20 +34,38 @@ def test_cursor_jobs_lock_the_panel_to_the_sheet(tmp_path):
     for job in planned["jobs"]:
         made[job["key"]] = _png(tmp_path / f"{job['key'].replace(':', '_')}.png")
     stored = refs(project, config, images=[{"key": key, "path": path} for key, path in made.items()])
+    assert stored["status"] == "needs_images"
+    turnaround = stored["jobs"][0]
+    assert turnaround["key"] == "turnaround:protagonista"
+    assert turnaround["reference_image_paths"][0].endswith("protagonista.png")
+    strip = Image.new("RGB", (400, 100), (255, 255, 255))
+    for column in range(4):
+        strip.paste((20 * column, 40, 80), (column * 100 + 20, 10, column * 100 + 80, 90))
+    strip.save(tmp_path / "strip.png")
+    stored = refs(project, config, images=[{"key": "turnaround:protagonista", "path": str(tmp_path / "strip.png")}])
+    assert [job["key"] for job in stored["jobs"]] == ["poses:protagonista"]
+    stored = refs(project, config, images=[{"key": "poses:protagonista", "path": _png(tmp_path / "poses.png")}])
     assert stored["status"] == "ok"
 
-    pending = draw(project, config)
-    assert pending["status"] == "needs_images"
-    person = next(job for job in pending["jobs"] if job["key"] == "p01_02")
-    empty = next(job for job in pending["jobs"] if job["key"] == "p01_01")
-    assert person["reference_image_paths"][0].endswith("protagonista.png")
+    plates = draw(project, config)
+    assert plates["status"] == "needs_images"
+    empty = next(job for job in plates["jobs"] if job["key"] == "p01_01:plate")
     assert empty["reference_image_paths"][0].endswith("escena.png")
-    assert all("p01_" not in path for path in person["reference_image_paths"])
+    assert "ink-blue coat" not in empty["description"]
+    files = [{"key": job["key"], "path": _png(tmp_path / f"{job['key'][:6]}.png", (90, 10, 10))} for job in plates["jobs"]]
+    waiting = draw(project, config, images=files)
+    assert waiting["status"] == "needs_approval" and "p01_02" in waiting["blocking"]
+    pending = draw(project, config, approve_blocking=sorted(waiting["blocking"]))
+    person = next(job for job in pending["jobs"] if job["key"] == "p01_02:figure:protagonista")
+    assert person["reference_image_paths"][0].endswith("protagonista.png")
+    assert person["reference_image_paths"][1].endswith(("protagonista-front.png", "protagonista-back.png"))
+    assert person["reference_image_paths"][2].endswith("protagonista-poses.png")
+    assert all("/panels/p01_" not in path for path in person["reference_image_paths"])
     assert "ink-blue coat" in person["description"]
     assert person["aspect_ratio"] in {"1:1", "4:3", "3:4", "16:9", "9:16"}
 
-    panels = [{"key": job["key"], "path": _png(tmp_path / f"{job['key']}.png", (90, 10, 10))} for job in pending["jobs"]]
-    done = draw(project, config, images=panels)
+    figures = [{"key": job["key"], "path": _png(tmp_path / f"{job['key'][:6]}-f.png", (60, 60, 90))} for job in pending["jobs"]]
+    done = draw(project, config, images=figures)
     assert done["status"] == "ok"
     pages = assemble(project, dialogue=[{"panel": "p01_02", "text": "Otra frase."}])
     assert pages["pages"][0].endswith(".ora")
