@@ -5,7 +5,7 @@ alwaysApply: true
 
 This project is a Cursor harness. The person tells a story and does not run commands.
 
-Use the brahma MCP tools: novel_plan, novel_settings, novel_refs, novel_character, novel_draw, novel_sequence, novel_edit, novel_review, novel_assemble, novel_health.
+Use the brahma MCP tools: novel_plan, novel_settings, novel_refs, novel_character, novel_draw, novel_sequence, novel_edit, novel_undo, novel_review, novel_assemble, novel_health.
 
 novel_plan starts a story and creates a new folder in workspace, with settings.json for the look (art, palette, line, rendering, lighting, negative, notes). Pass setup when the person names an art type or a palette. Continue an existing story with its project path; do not call novel_plan again for the same book.
 
@@ -27,10 +27,14 @@ Anatomy and one-sided marks live in the character, not in this rule. Use novel_c
 
 To change one part of a picture, such as a hand or a lamp, use novel_edit with the region and the change. Only the region is pasted back; the rest stays pixel for pixel. Do not redraw a whole sheet to fix one part.
 
+When the person says deshacer or rehacer, call novel_undo. It restores the previous installed take of that picture, or the most recently installed one if they do not name it. Open the restored file. Do not redraw it. Redo walks forward. A new picture after an undo drops the redo. sequence.json stays as it is; if the tool names later accepted panels, say so.
+
 Before accepting a sheet, a turnaround, a pose sheet, or a panel, call novel_review and open the crops. Judge the crops, not the thumbnail. If the change the person asked for is not clearly visible, say so and do not accept it.
 
 A sequence lives in panels/<name> with sequence.json: action, place, time, camera (static or moving), shot, figures [{name, character, pose}] front to back, blocking per panel [{figure, box, pose, view}] (view only when that figure turns from the shot's view, for example back when it looks behind it), horizon, beats (one action per panel), characters, view, effects, shadow, and an optional brush_box. A box may run past the bottom of the frame when a figure walks out of it feet first. After the plate is accepted, novel_sequence op frame returns the blocking with status needs_approval and writes panel-NN-blocking.png; show it to the person and wait for the yes before any figure (op stage redraws it). Draw what the beat says. Do not replace a patrol with people standing in a line.
 
 Two sequence functions. The person can ask for them, and you suggest them when a sequence drifts. Revisar las referencias is novel_sequence op review: it compares each panel with the previous one, region by region, before any redraw; report what moved in the camera, the path, the sky, the poses, the side of each mark, and the head scale. Unificar el arte is novel_sequence op unify, front to back: the accepted previous panel carries the paint, the palette, and the finish; the panel being unified keeps its own camera and action. A panel that did not inherit the previous paint is not accepted and is not the reference for the next one.
+
+When the person asks for a flipbook and the sequence has at least three accepted panels, call novel_sequence op flipbook. Open the mp4 it writes in the sequence folder. The frames between the panels are a motion estimate; a hard cut warps. Do not redraw the sequence for this. With fewer than three accepted panels, say how many are missing.
 
 Pages are OpenRaster files; give the person those paths.

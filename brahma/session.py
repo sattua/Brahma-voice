@@ -19,6 +19,7 @@ from brahma.consistency import (
 )
 from brahma.edit import finish_edit, start_edit
 from brahma.errors import BrahmaError
+from brahma.flipbook import build_flipbook
 from brahma.intake import import_images, uploaded_paths
 from brahma.models import MAX_CHARACTERS, CharacterSpec, DialogueLine, PanelFigure, Project
 from brahma.review import SHOT_REGIONS, duplicate_figures, review_picture
@@ -45,7 +46,7 @@ from brahma.sequence import (
 )
 from brahma.stage import back_to_front, blocking_preview, blocking_report, ground_ratio
 from brahma.settings import load_settings, look_from_style, overlay_look, save_settings, settings_from_look
-from brahma.takes import list_takes, record_take, retire
+from brahma.takes import latest_dest, list_takes, record_take, retire, step
 from brahma.vision import read_drawing
 from brahma.pipeline import (
     assemble_pages,
@@ -387,6 +388,8 @@ def sequence(
     step: str = "panel",
     figure: str | None = None,
     effects: list[str] | None = None,
+    between: int | None = None,
+    fps: int | None = None,
 ) -> dict:
     """One continuous shot in panels/<name>, built place first, figures after, filter at the end."""
 
@@ -421,6 +424,17 @@ def sequence(
     current = load_sequence(folder)
     if op == "status":
         return {**base, "status": "ok", "settings": current.model_dump(), "panels": existing_panels(folder), "stages": _stages(folder, current)}
+    if op == "flipbook":
+        done = build_flipbook(folder, between=between, fps=fps)
+        return {
+            **base,
+            "status": "ok",
+            **done,
+            "next_actions": [
+                "Open the mp4. The frames between the panels are a motion estimate. "
+                "A hard cut warps. Do not redraw the sequence for this."
+            ],
+        }
     if op == "unify":
         number = _index(index)
         cast = _sequence_cast(root, current)
@@ -536,7 +550,7 @@ def sequence(
                 "figures: two figures never share a pose. Accept only when it follows the previous panel."
             ],
         }
-    raise BrahmaError("op is create, set, status, frame, plate, stage, figure, filter, place, accept, review, or unify")
+    raise BrahmaError("op is create, set, status, frame, plate, stage, figure, filter, place, accept, review, unify, or flipbook")
 
 
 def _step_key(slug: str, current: SequenceSettings, number: int, step: str, figure: str = "") -> str:
@@ -929,6 +943,73 @@ def edit(
             "Only the region is pasted back."
         ],
     }
+
+
+def undo(
+    project: str | Path,
+    target: str | None = None,
+    direction: str = "undo",
+) -> dict:
+    """Restore the previous or next installed take of one picture.
+
+    The file changes. The takes stay. sequence.json is not rewritten: a later accepted
+    panel that was painted from this one is named, and it keeps its acceptance.
+    """
+
+    if direction not in {"undo", "redo"}:
+        raise BrahmaError("direction is undo or redo")
+    root = _root(project)
+    if target:
+        path = _inside(root, target)
+    else:
+        found = latest_dest(root, direction)
+        if found is None:
+            return {
+                "operation": "undo",
+                "status": "ok",
+                "project": str(root),
+                "direction": direction,
+                "moved": False,
+                "reason": "nothing earlier" if direction == "undo" else "nothing later",
+            }
+        path = found
+    done = step(root, path, direction)
+    result = {"operation": "undo", "status": "ok", "project": str(root), "direction": direction, **done}
+    if not done.get("moved"):
+        return result
+    followed = _later_panels(root, path)
+    if followed:
+        result["followed_by"] = followed
+        result["next_actions"] = [
+            "The picture is restored. Later accepted panels were painted from the version just left; "
+            "their acceptance stays."
+        ]
+    else:
+        result["next_actions"] = ["Open the restored picture. It was not redrawn."]
+    return result
+
+
+def _later_panels(root: Path, path: Path) -> list[int]:
+    """Accepted sequence panels after this file. Empty when this picture is not one of them."""
+
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return []
+    parts = relative.parts
+    if len(parts) != 3 or parts[0] != "panels":
+        return []
+    match = re.fullmatch(r"panel-(\d+)\.png", parts[2])
+    if match is None:
+        return []
+    folder = root / "panels" / parts[1]
+    if not (folder / "sequence.json").is_file():
+        return []
+    index = int(match.group(1))
+    sequence = load_sequence(folder)
+    if index not in sequence.accepted:
+        return []
+    return [number for number in sequence.accepted if number > index]
 
 
 def review(

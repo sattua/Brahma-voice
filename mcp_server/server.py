@@ -18,7 +18,7 @@ from pydantic import Field
 
 from brahma.config import load_config
 from brahma.errors import BrahmaError
-from brahma.session import assemble, character, configure, draw, edit, health, plan, refs, review, sequence
+from brahma.session import assemble, character, configure, draw, edit, health, plan, refs, review, sequence, undo
 
 INSTRUCTIONS = """\
 Brahma turns a told story into a graphic novel.
@@ -36,6 +36,7 @@ Which picture a new image may look at. A page panel: its plate looks only at the
 The pose sheet (face close-ups on top, action poses below) is drawn after the turnaround; choose its poses with novel_character poses.
 Character changes go to novel_character (body, marks with a side, poses, visual). A mark on the wearer's left is on the right of the picture in a front view and on the left in a back view; the tools say this for you.
 To change one part of a picture (a hand, a lamp), call novel_edit with the region. Only the region is pasted back; the rest stays pixel for pixel. Do not redraw a whole sheet to fix a hand.
+When the person says deshacer or rehacer, call novel_undo. It restores an earlier installed take of that picture, or the most recently installed one if they name none. Open the restored file. Do not redraw it. Redo walks forward. A new picture after an undo drops the redo. sequence.json stays as it is; if the tool names later accepted panels, say so.
 Before accepting, call novel_review and open the crops. To redraw one reference, call novel_refs with force true and key.
 Dialogue-only changes go to novel_assemble as dialogue [{panel, text}] and do not need new art.
 Results are compact JSON. Pages are OpenRaster (.ora), editable in Krita and GIMP."""
@@ -186,14 +187,17 @@ async def novel_character(
         "op accept with index and step plate|blocking|figure|panel; step blocking only after the person says yes to the preview. "
         "op filter with index and effects returns the filter job, written to a separate file. "
         "op review with index compares panel n with n-1 and flags figures with the same pose. "
-        "op unify with index repaints panel n with the paint of accepted n-1, keeping its camera. op status."
+        "op unify with index repaints panel n with the paint of accepted n-1, keeping its camera. "
+        "op flipbook, once at least three panels are accepted, writes flipbook.mp4 in the sequence folder: "
+        "the panels are the keyframes and ffmpeg minterpolate invents the frames between them (between, default 5, and fps, default 8). "
+        "Those frames are a motion estimate and a hard cut warps. They are not references. op status."
     ),
 )
 async def novel_sequence(
     project: str,
     name: Annotated[str, Field(description="Sequence folder name, such as patrulla-nocturna.")],
     op: Annotated[
-        str, Field(description="create, set, status, frame, plate, stage, figure, filter, place, accept, review, or unify.")
+        str, Field(description="create, set, status, frame, plate, stage, figure, filter, place, accept, review, unify, or flipbook.")
     ],
     index: Annotated[int | None, Field(description="Panel number, starting at 1.")] = None,
     settings: Annotated[dict[str, Any] | None, Field(description="For create and set.")] = None,
@@ -203,6 +207,8 @@ async def novel_sequence(
     step: Annotated[str, Field(description="For place: plate, figure, filter, or panel. For accept: plate, blocking, figure, or panel.")] = "panel",
     figure: Annotated[str | None, Field(description="For place, accept, and figure: the figure name, such as lead.")] = None,
     effects: Annotated[list[str] | None, Field(description="For filter: sparks, rain, fog, glow, light rays.")] = None,
+    between: Annotated[int | None, Field(description="For flipbook: invented frames between each pair of panels, 1 to 23. Default 5. 23 with fps 24 is 24 frames per second.")] = None,
+    fps: Annotated[int | None, Field(description="For flipbook: playback frames per second, 1 to 24. Default 8.")] = None,
 ) -> str:
     return await _run(
         lambda: sequence(
@@ -218,6 +224,8 @@ async def novel_sequence(
             step=step,
             figure=figure,
             effects=effects,
+            between=between,
+            fps=fps,
         )
     )
 
@@ -239,6 +247,23 @@ async def novel_edit(
     note: str = "",
 ) -> str:
     return await _run(lambda: edit(project, _config(), target, regions, change, image, note))
+
+
+@mcp.tool(
+    name="novel_undo",
+    description=(
+        "Undo or redo one installed picture from its earlier takes. "
+        "Without a target, step the picture installed most recently that can still move. "
+        "Copies that take back onto the file. Does not redraw and does not change sequence.json. "
+        "direction is undo or redo."
+    ),
+)
+async def novel_undo(
+    project: str,
+    target: Annotated[str | None, Field(description="Picture inside the story. Omit to use the most recent one.")] = None,
+    direction: Annotated[str, Field(description="undo or redo.")] = "undo",
+) -> str:
+    return await _run(lambda: undo(project, target, direction))
 
 
 @mcp.tool(

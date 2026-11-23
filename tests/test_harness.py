@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -7,9 +8,9 @@ from brahma.config import AppConfig, ImageConfig, ScriptConfig
 from brahma.consistency import character_clause, character_sheet_prompt, marks_clause, negative_prompt
 from brahma.errors import BrahmaError
 from brahma.models import CharacterSpec, Mark, StyleSpec
-from brahma.session import character, draw, edit, plan, refs, review, sequence
+from brahma.session import character, draw, edit, plan, refs, review, sequence, undo
 from brahma.store import load_project
-from brahma.takes import list_takes
+from brahma.takes import list_takes, record_take
 
 
 def _config(tmp_path) -> AppConfig:
@@ -541,3 +542,111 @@ def test_jobs_say_which_references_did_not_fit(tmp_path):
 def test_draw_still_waits_for_sheets(tmp_path):
     config, root, _planned = _book(tmp_path)
     assert draw(root, config)["status"] == "blocked"
+
+
+def _pixel(path: Path) -> tuple:
+    with Image.open(path) as image:
+        return image.convert("RGB").getpixel((0, 0))
+
+
+def test_undo_restores_the_previous_take_and_keeps_the_newer_one(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    sheet = root / "refs" / "characters" / "protagonista.png"
+    assert _pixel(sheet) == (20, 40, 80)
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "next.png", (0, 180, 0))}])
+    assert _pixel(sheet) == (0, 180, 0)
+    done = undo(root, str(sheet))
+    assert done["moved"] is True
+    assert _pixel(sheet) == (20, 40, 80)
+    takes = list_takes(root, "character:protagonista")
+    assert [item["status"] for item in takes] == ["accepted", "replaced", "accepted"]
+    assert all(Path(item["file"]).is_file() for item in takes)
+    assert undo(root, str(sheet))["moved"] is False
+    assert _pixel(sheet) == (20, 40, 80)
+
+
+def test_redo_returns_the_newer_take_and_a_new_install_cuts_it(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    sheet = root / "refs" / "characters" / "protagonista.png"
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "next.png", (0, 180, 0))}])
+    assert undo(root, str(sheet))["moved"] is True
+    forward = undo(root, str(sheet), direction="redo")
+    assert forward["moved"] is True
+    assert _pixel(sheet) == (0, 180, 0)
+    assert undo(root, str(sheet))["moved"] is True
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "third.png", (180, 0, 0))}])
+    assert undo(root, str(sheet), direction="redo")["moved"] is False
+    assert _pixel(sheet) == (180, 0, 0)
+    assert undo(root, str(sheet))["moved"] is True
+    assert _pixel(sheet) == (20, 40, 80)
+
+
+def test_a_rejected_take_is_not_a_version(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    sheet = root / "refs" / "characters" / "protagonista.png"
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "bad.png", (250, 0, 0)), "accept": False, "note": "two legs"}])
+    assert undo(root, str(sheet))["moved"] is False
+    assert _pixel(sheet) == (20, 40, 80)
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "next.png", (0, 180, 0))}])
+    assert undo(root, str(sheet))["moved"] is True
+    assert _pixel(sheet) == (20, 40, 80)
+
+
+def test_undo_after_an_edit_restores_the_whole_picture(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    sheet = root / "refs" / "characters" / "protagonista.png"
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "base.png", (10, 120, 200), (100, 100))}])
+    edit(root, config, str(sheet), regions=[[20, 20, 60, 60]], change="a dark scaled hand")
+    edit(root, config, str(sheet), image=_png(tmp_path / "gen.png", (250, 250, 0), (200, 200)))
+    with Image.open(sheet) as result:
+        rgb = result.convert("RGB")
+        assert rgb.getpixel((40, 40)) == (250, 250, 0)
+        assert rgb.getpixel((5, 5)) == (10, 120, 200)
+    assert undo(root, str(sheet))["moved"] is True
+    with Image.open(sheet) as result:
+        rgb = result.convert("RGB")
+        for x in range(100):
+            for y in range(100):
+                assert rgb.getpixel((x, y)) == (10, 120, 200)
+
+
+def test_undo_rebuilds_the_stack_from_takes_when_history_is_missing(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    sheet = root / "refs" / "characters" / "protagonista.png"
+    refs(root, config, images=[{"key": "character:protagonista", "path": _png(tmp_path / "next.png", (0, 180, 0))}])
+    history = root / "takes" / "history.json"
+    assert history.is_file()
+    history.unlink()
+    done = undo(root)
+    assert done["moved"] is True
+    assert done["dest"].endswith("refs/characters/protagonista.png")
+    assert _pixel(sheet) == (20, 40, 80)
+    assert history.is_file()
+
+
+def test_undo_names_later_panels_and_leaves_acceptance(tmp_path):
+    config, root, _planned = _book(tmp_path)
+    sequence(root, config, "noche", "create", settings={"action": "Caminan."})
+    first = root / "panels" / "noche" / "panel-01.png"
+    sequence(root, config, "noche", "place", index=1, step="panel", image=_png(tmp_path / "one.png", (20, 40, 80)), verdict="accepted")
+    sequence(root, config, "noche", "place", index=2, step="panel", image=_png(tmp_path / "two.png", (0, 180, 0)), verdict="accepted")
+    record_take(root, "sequence:noche:01", Path(_png(tmp_path / "one-b.png", (180, 0, 0))), dest=first, status="placed", note="second")
+    assert _pixel(first) == (180, 0, 0)
+    accepted = json.loads((root / "panels" / "noche" / "sequence.json").read_text(encoding="utf-8"))["accepted"]
+    done = undo(root, str(first))
+    assert done["moved"] is True
+    assert done["followed_by"] == [2]
+    assert _pixel(first) == (20, 40, 80)
+    assert json.loads((root / "panels" / "noche" / "sequence.json").read_text(encoding="utf-8"))["accepted"] == accepted
+
+
+def test_undo_rejects_an_unknown_direction(tmp_path):
+    config, root, planned = _book(tmp_path)
+    _install_all(config, root, planned["jobs"], tmp_path)
+    with pytest.raises(BrahmaError, match="undo or redo"):
+        undo(root, direction="sideways")

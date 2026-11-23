@@ -18,7 +18,7 @@ Es una regla fija de toda la aplicación. Cada viñeta, de página o de secuenci
 
 1. **El lugar, vacío** (la placa): sin personas, sin criaturas y sin efectos. Mira solo la placa del lugar. La muestra de estilo no va: suele ser un retrato, y la placa copiaría su encuadre y sus partículas; el estilo viaja como texto.
 2. **El bloqueo**, que la persona aprueba: dónde está cada personaje y qué tan alto se ve. Es la placa con un monigote por personaje, los pies en su sitio, numerados en el orden en que entran, la línea punteada del horizonte y la altura de cada uno como parte del cuadro (`alto 41%`). Un dibujo en papel se lee igual: cada monigote, de la cabeza a los pies, como fracción del recuadro que lo rodea. El agente mira la placa y fija el horizonte (`horizon`, de 0 a 1 desde arriba). Con él, `scale_off` avisa cuando un personaje de pie es demasiado grande o demasiado chico para el lugar donde tiene los pies. En una cámara quieta, las figuras de pie ya aceptadas sobre esa placa fijan una sola proporción de suelo (`ground_ratio`): el alto de una figura nueva es `(pies − horizonte) / proporción`, y quien se aparte más del 15% queda en `scale_off` aunque las figuras nuevas coincidan entre ellas. El primer panel, y una cámara que se mueve, usan la mediana de ese panel, porque todavía no hay suelo aceptado. Una viñeta de página no toma el suelo de otra. Ninguna figura se dibuja antes de que la persona diga que sí. Cambiar una caja, una pose, el horizonte o la placa pide el sí otra vez.
-3. **Los personajes**, uno por uno, de atrás hacia adelante. Cada uno se dibuja solo, de cuerpo entero, sobre verde plano. La herramienta quita el verde, lo escala a su caja (`blocking`) con los pies en el borde de abajo y le pone una sombra suave en el suelo. Fuera de la figura y su sombra, el lugar queda igual, píxel por píxel. El modelo de imagen reencuadra lo que recibe, por eso no se le pide pintar dentro de una caja sobre el lugar.
+3. **Los personajes**, uno por uno, de atrás hacia adelante. Cada uno se dibuja solo, de cuerpo entero, sobre verde plano. La herramienta quita el verde, lo escala a su caja (`blocking`) con los pies en el borde de abajo y le pone una sombra suave en el suelo. Fuera de la figura y su sombra, el lugar queda igual, píxel por píxel. El modelo de imagen reencuadra lo que recibe, por eso no se le pide pintar dentro de una caja sobre el lugar. Una figura cuyos pies quedan por encima del horizonte no echa sombra en el suelo, y las hojas oscuras de la placa vuelven a quedar delante de ella. Si la sombra cae hacia la cámara (`back` negativo), el frente de la figura se oscurece y le queda un filo frío arriba y en el lado contrario a `lean`, después de igualar el color.
 4. **Un filtro**, solo si se pide: chispas, lluvia, niebla, brillo, rayos de luz. Se dibuja sobre la viñeta terminada en un archivo aparte (`-fx.png`), que en la página es su propia capa y nunca sirve de referencia.
 
 Los efectos no entran en ninguna imagen base. Las herramientas los sacan de la apariencia, de los lugares y de las acciones, los guardan en `settings.json` `effects` y los dejan siempre en la negativa: partículas, chispas, motas que brillan, luciérnagas, bokeh, destellos de lente, rayos de luz, brillo, niebla, bruma, lluvia, nieve, humo y brasas. La luz de estudio de las hojas no llega a las escenas, y la de las escenas no llega a las hojas.
@@ -68,7 +68,13 @@ Igual que el harness elige el camino más barato:
 
 ## Tomas
 
-Ninguna imagen se pierde. Cada archivo que vuelve de la herramienta de imagen se guarda en `takes/<clave>/NN.png`, con un `NN.json` que dice si fue aceptada, rechazada o reemplazada, y por qué. La imagen aceptada se copia a su lugar (`refs/…`, `panels/…`). Rechazar una toma es pasar `accept: false` y una nota: queda guardada en el libro y se puede abrir.
+Ninguna imagen se pierde. Cada archivo que vuelve de la herramienta de imagen se guarda en `takes/<clave>/NN.png`, con un `NN.json` que dice si fue aceptada, puesta, rechazada, reemplazada o el dibujo en verde antes de componerse, y por qué. La imagen aceptada o puesta se copia a su lugar (`refs/…`, `panels/…`). Rechazar una toma es pasar `accept: false` y una nota: queda guardada en el libro y se puede abrir.
+
+## Deshacer
+
+Es una regla fija. Cada imagen instalada (un panel, una hoja, una placa, un filtro) tiene una pila con las tomas que llegaron a copiarse sobre ese archivo. La pila está en `takes/history.json`. La persona dice deshacer, y `novel_undo` copia la toma anterior sobre el archivo. La versión que estaba no se borra: sigue en `takes/` y rehacer la trae de vuelta. Una toma rechazada, o el dibujo en verde antes de componerse, no es una versión. La copia que se guarda al reemplazar tampoco, porque es el mismo píxel que la versión ya instalada; solo cuenta si esa imagen nunca se había instalado y esa copia es lo único que queda de ella.
+
+Deshacer no reescribe `sequence.json`: el beat, las cajas y los paneles aceptados se quedan. Si hay paneles posteriores aceptados, la respuesta los nombra, porque se pintaron con la versión que se deja, y no les quita la aceptación. Sin una imagen nombrada, deshace la que se instaló más recientemente y todavía puede dar un paso. Un dibujo nuevo después de deshacer corta el rehacer: esos archivos se pueden abrir, pero ya no vuelven solos. Deshacer no vuelve a dibujar.
 
 ## Revisar antes de aceptar
 
@@ -82,7 +88,7 @@ Límites de producción, por tiempo de GPU: 8 páginas, 6 viñetas, 4 personajes
 
 ## Uso desde Cursor
 
-El servidor MCP `brahma` ya está registrado. No hay comandos que lanzar. En el chat se cuenta la historia y el agente usa las herramientas: `novel_plan`, `novel_settings`, `novel_refs`, `novel_character`, `novel_draw`, `novel_sequence`, `novel_edit`, `novel_review`, `novel_assemble`. Cuando cambia el servidor, hay que recargar el MCP `brahma` en Cursor.
+El servidor MCP `brahma` ya está registrado. No hay comandos que lanzar. En el chat se cuenta la historia y el agente usa las herramientas: `novel_health`, `novel_plan`, `novel_settings`, `novel_refs`, `novel_character`, `novel_draw`, `novel_sequence`, `novel_edit`, `novel_undo`, `novel_review`, `novel_assemble`. Cuando cambia el servidor, hay que recargar el MCP `brahma` en Cursor.
 
 Una imagen adjunta puede ser referencia gráfica (`role: style`, `character` o `location`): se copia a `references/` y viaja en `reference_image_paths`. Si es un dibujo a mano (`role: sketch`), el chat lo mira y esa lectura (medio, paleta, trazo, notas) se escribe en `settings.json`. El archivo del dibujo sigue siendo referencia. No hay un modelo de visión local; si la lectura no viene en la llamada, la herramienta responde `needs_reading` y se completa con `novel_settings`.
 
@@ -95,6 +101,8 @@ novel_plan → dibujar cada job de referencia → novel_refs con los archivos
 → cada figura en su caja → novel_draw con los archivos (hasta que no queden jobs)
 → filtro, solo si se pide → novel_assemble
 ```
+
+Deshacer no es un paso de ese dibujo. `novel_undo` restaura una toma que ya estaba guardada.
 
 ```text
 workspace/<historia>/
@@ -118,7 +126,10 @@ workspace/<historia>/
   panels/<secuencia>/sequence.json
   panels/<secuencia>/plate.png         # cámara fija; plate-01.png… si se mueve
   panels/<secuencia>/panel-01.png
+  panels/<secuencia>/flipbook/frame-001.png  # cuadros del flipbook, clave e interpolados
+  panels/<secuencia>/flipbook.mp4            # el flipbook, para un reproductor
   takes/<clave>/01.png       # cada intento, aceptado o no, con su nota
+  takes/history.json         # la pila de deshacer de cada imagen instalada
   edit/                      # máscaras de las ediciones por región
   review/                    # recortes y tiras de comparación
   pages/page-01.ora          # capas, para Krita o GIMP
@@ -142,6 +153,8 @@ Estas dos funciones mantienen la consistencia. Se le piden al agente, y el agent
 
 **Unificar el arte** (`op unify`). Repinta de adelante hacia atrás. El panel anterior aceptado lleva el arte: el mismo pincel, la misma paleta y el mismo acabado. El panel que se unifica lleva la cámara y la acción, y no se redibuja de cero. El recorte de pincel acompaña, no reemplaza el cuadro. Un panel que no heredó el arte del anterior no se acepta y no se usa para el que sigue.
 
+**Flipbook** (`op flipbook`). Con al menos tres paneles aceptados, esos paneles son los cuadros clave. ffmpeg estima el movimiento entre cada par (`between`, de 1 a 23, por defecto 5) y escribe `flipbook/frame-001.png` y los que sigan, más `flipbook.mp4` a `fps` cuadros por segundo (de 1 a 24, por defecto 8). Con `between` 23 y `fps` 24 hay 24 cuadros en cada segundo. El cuadro de cada clave vuelve a ser el panel original. Los cuadros de en medio son una estimación: un corte de plano se deforma. No son tomas ni referencias, y no se redibuja la secuencia para esto. Con menos de tres paneles aceptados, no se inventan.
+
 ## Pruebas
 
 ```bash
@@ -160,6 +173,8 @@ No hace falta GPU. Las pruebas comprueban, entre otras cosas:
 - que una marca cambia de lado del cuadro entre frente y espalda;
 - que un boceto con dueño no llega a lugares ni al estilo;
 - que una toma rechazada queda guardada;
+- que deshacer restaura la toma anterior de una imagen, rehacer la trae de vuelta y un dibujo nuevo corta ese rehacer;
+- que un flipbook necesita tres paneles aceptados y el primer cuadro es el primer panel;
 - que `novel_edit` no toca un píxel fuera de la región;
 - que el `.ora` abre como capas separadas;
 - que cambiar un diálogo no vuelve a dibujar.
