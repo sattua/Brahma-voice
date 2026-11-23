@@ -27,7 +27,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from brahma.cutout import CastShadow, place_figure, save_cutout
+from brahma.cutout import CastShadow, cover_with_foreground, place_figure, save_cutout
 from brahma.errors import BrahmaError
 from brahma.figures import box_crop
 from brahma.models import BOTTOM_OUT
@@ -78,7 +78,7 @@ def check_box(box) -> tuple[float, float, float, float]:
         raise BrahmaError(
             f"box {box} is not [left, top, right, bottom] as fractions inside 0..1 (the bottom may reach {BOTTOM_OUT})"
         )
-    if values[2] - values[0] < 0.02 or values[3] - values[1] < 0.04:
+    if values[2] - values[0] < 0.02 or values[3] - values[1] < 0.02:
         raise BrahmaError(f"box {box} is too small for a figure")
     return values[0], values[1], values[2], values[3]
 
@@ -347,12 +347,21 @@ def still_beat(text: str) -> bool:
 class Stage:
     """The base picture of one panel and which figures are already on it."""
 
-    def __init__(self, root: Path, plate: Path, base: Path, final: Path, shadow: CastShadow | None = None):
+    def __init__(
+        self,
+        root: Path,
+        plate: Path,
+        base: Path,
+        final: Path,
+        shadow: CastShadow | None = None,
+        horizon: float | None = None,
+    ):
         self.root = root
         self.plate = plate
         self.base = base
         self.final = final
         self.shadow = shadow
+        self.horizon = horizon
         self.state_path = base.with_suffix(".stage.json")
         self.before = base.with_name(base.stem + "-before.png")
 
@@ -435,13 +444,17 @@ class Stage:
         self.open()
         shutil.copyfile(self.base, self.before)
         with Image.open(self.base) as image, Image.open(generated) as drawn:
+            cast = None if self.horizon is not None and placement.box[3] < self.horizon else self.shadow
             if match is not None and match.is_file():
                 with Image.open(match) as previous:
                     composed, figure = place_figure(
-                        image, drawn, placement.box, match=previous.convert("RGB"), shadow=self.shadow
+                        image, drawn, placement.box, match=previous.convert("RGB"), shadow=cast
                     )
             else:
-                composed, figure = place_figure(image, drawn, placement.box, shadow=self.shadow)
+                composed, figure = place_figure(image, drawn, placement.box, shadow=cast)
+            if self.horizon is not None and placement.box[3] < self.horizon and self.plate.is_file():
+                with Image.open(self.plate) as plate:
+                    composed = cover_with_foreground(plate, composed)
         composed.save(self.base, format="PNG")
         cutout = save_cutout(figure, self.cutout_path(placement.name))
         take = record_take(self.root, key, generated, dest=None, status="raw", note=note or placement.pose)

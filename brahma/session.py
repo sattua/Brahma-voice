@@ -53,6 +53,7 @@ from brahma.pipeline import (
     generate_references,
     panel_slots,
     plan_story,
+    figure_view,
     pose_reference,
     reference_slots,
     view_reference,
@@ -603,7 +604,7 @@ def _figure_frame(root: Path, folder: Path, current: SequenceSettings, number: i
         number,
         name,
         who=who,
-        view=view_reference(root, found.id, view),
+        view=figure_view(root, found.id, view, placement.pose),
         pose_sheet=pose_reference(root, found.id),
     )
 

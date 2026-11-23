@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw
 
 from brahma.config import AppConfig, ImageConfig, ScriptConfig
 from brahma.consistency import figure_clause, negative_prompt, scene_style, sheet_style
-from brahma.cutout import CastShadow, key_green, match_scene, place_figure
+from brahma.cutout import CastShadow, cover_with_foreground, key_green, match_scene, place_figure
 from brahma.effects import EFFECTS_NEGATIVE, has_effect, split_effects, without_effects
 from brahma.errors import BrahmaError
 from brahma.models import CharacterSpec, Mark, StyleSpec
@@ -300,6 +300,20 @@ def test_a_figure_lays_its_shadow_on_the_ground_behind_it():
     assert laid.getpixel((130, 130))[0] < 85
     assert laid.getpixel((300, 130)) == (100, 100, 100)
     assert laid.getpixel((130, 60)) == (100, 100, 100)
+
+
+def test_leaves_in_front_of_the_sky_cover_a_figure_there():
+    plate = Image.new("RGB", (40, 40), (20, 40, 70))
+    for x in range(10, 20):
+        for y in range(8, 18):
+            plate.putpixel((x, y), (4, 8, 6))
+    composed = plate.copy()
+    for x in range(8, 30):
+        for y in range(6, 28):
+            composed.putpixel((x, y), (40, 40, 42))
+    covered = cover_with_foreground(plate, composed)
+    assert covered.getpixel((12, 12)) == (4, 8, 6)
+    assert covered.getpixel((24, 22)) == (40, 40, 42)
 
 
 def test_a_figure_takes_its_color_from_the_previous_panel():

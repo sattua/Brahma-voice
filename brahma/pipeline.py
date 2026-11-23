@@ -8,6 +8,7 @@ sequences, which are one continuous shot, live in brahma.sequence.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -356,6 +357,26 @@ def turnaround_views(root: Path, character_id: str) -> tuple[str, ...]:
         if views and all(view in VIEWS for view in views):
             return tuple(views)
     return VIEWS
+
+
+_FROM_BELOW = re.compile(r"desde el suelo|desde abajo|from below|underside|belly|vientre", re.I)
+
+
+def below_reference(root: Path, character_id: str) -> Path | None:
+    """The drone as seen from the ground, looking up. None until that sheet exists."""
+
+    path = root / "refs" / "characters" / f"{character_id}-below.png"
+    return path if path.is_file() else None
+
+
+def figure_view(root: Path, character_id: str, view: str, pose: str) -> Path | None:
+    """The side the camera sees. A pose from below uses the underside sheet when it exists."""
+
+    if _FROM_BELOW.search(pose or ""):
+        below = below_reference(root, character_id)
+        if below is not None:
+            return below
+    return view_reference(root, character_id, view)
 
 
 def view_reference(root: Path, character_id: str, view: str) -> Path | None:

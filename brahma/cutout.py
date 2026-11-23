@@ -168,10 +168,10 @@ def grade_for_shadow(figure: Image.Image, shadow: CastShadow) -> Image.Image:
     edge = ImageChops.add(facing_up.point(lambda value: int(value * 0.7)), side.point(lambda value: int(value * 0.55)))
     edge = edge.filter(ImageFilter.GaussianBlur(max(1.4, radius * 0.8)))
     edge = ImageChops.multiply(edge, alpha)
-    shaded = [band.point(lambda value: int(value * 0.5)) for band in rgba.convert("RGB").split()]
-    cool = (150, 168, 188)
+    shaded = [band.point(lambda value: int(value * 0.72)) for band in rgba.convert("RGB").split()]
+    cool = (168, 186, 214)
     lit = [
-        ImageChops.add(band, edge.point(lambda value, glow=glow: int(glow * 0.32 * value / 255)))
+        ImageChops.add(band, edge.point(lambda value, glow=glow: int(glow * 0.62 * value / 255)))
         for band, glow in zip(shaded, cool)
     ]
     out = Image.merge("RGB", lit).convert("RGBA")
@@ -206,13 +206,13 @@ def place_figure(
     scale = (bottom - top) / figure.height
     size = (max(1, round(figure.width * scale)), max(1, round(figure.height * scale)))
     figure = figure.resize(size, Image.Resampling.LANCZOS)
-    if shadow is not None:
-        figure = grade_for_shadow(figure, shadow)
     if match is not None:
         figure = match_color(figure, figure_color(match))
     else:
         around = canvas.crop((max(0, left - size[0]), max(0, top), min(width, right + size[0]), min(height, bottom)))
         figure = match_scene(figure, around)
+    if shadow is not None:
+        figure = grade_for_shadow(figure, shadow)
     x = round((left + right) / 2 - size[0] / 2)
     y = bottom - size[1]
     contact = Image.new("L", canvas.size, 0)
@@ -230,6 +230,35 @@ def place_figure(
     canvas = lay_shadow(canvas, contact)
     canvas.paste(figure, (x, y), figure)
     return canvas, figure
+
+
+def _nearer_leaf(pixel: tuple[int, int, int]) -> bool:
+    """A dark leaf in front of the sky. The night sky is bluer, so it stays behind."""
+
+    red, green, blue = pixel
+    luma = 0.2 * red + 0.7 * green + 0.1 * blue
+    return luma < 22 and blue < green + 10
+
+
+def cover_with_foreground(plate: Image.Image, composed: Image.Image) -> Image.Image:
+    """Leaves that sit nearer than a figure in the sky come back in front of it."""
+
+    source = plate.convert("RGB")
+    out = composed.convert("RGB")
+    if source.size != out.size:
+        return out
+    leaves = source.load()
+    picture = out.load()
+    width, height = out.size
+    for y in range(height):
+        for x in range(width):
+            leaf = leaves[x, y]
+            painted = picture[x, y]
+            if abs(leaf[0] - painted[0]) + abs(leaf[1] - painted[1]) + abs(leaf[2] - painted[2]) < 24:
+                continue
+            if _nearer_leaf(leaf):
+                picture[x, y] = leaf
+    return out
 
 
 def save_cutout(figure: Image.Image, dest: Path) -> Path:

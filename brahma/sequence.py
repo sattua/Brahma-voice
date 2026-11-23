@@ -241,13 +241,28 @@ class SequenceSettings(BaseModel):
 
         return [figure.name for figure in self.figures if self.box_of(index, figure.name) is None]
 
+    def _enters_later(self, index: int, name: str) -> bool:
+        """True when the figure's first box is on a panel after index."""
+
+        for key, blocks in self.blocking.items():
+            if int(key) > index and any(block.figure == name for block in blocks):
+                return True
+        return False
+
     def placements(self, index: int) -> list[Placement]:
-        """Every figure in panel index, with its box and its pose there."""
+        """Every figure already in panel index, with its box and its pose there.
+
+        A figure whose first box is on a later panel stays out of this one, so an arrival
+        does not move the panels already accepted. A figure with no box anywhere is still proposed."""
 
         fallback = default_boxes(len(self.figures), "wide")
         out = []
         for number, figure in enumerate(self.figures):
-            box = self.box_of(index, figure.name) or fallback[number]
+            box = self.box_of(index, figure.name)
+            if box is None:
+                if self._enters_later(index, figure.name):
+                    continue
+                box = fallback[number]
             out.append(Placement(figure.name, figure.character, self.pose_of(index, figure.name), box))
         return out
 
@@ -300,6 +315,7 @@ def stage_of(folder: Path, sequence: SequenceSettings, index: int) -> Stage:
         base_path(folder, index),
         panel_path(folder, index),
         shadow=sequence.shadow.cast() if sequence.shadow else None,
+        horizon=sequence.horizon,
     )
 
 
@@ -430,14 +446,17 @@ def figure_frame(
         warnings.append(
             f"pose_repeated: {placement.name} has the same pose as in panel {index - 1}, but the action moves on"
         )
+    from_below = view is not None and view.name.endswith("-below.png")
+    seen = "the view from below and the pose sheet" if from_below else "turnaround view and pose sheet"
+    take = "identity, gear, and the underside" if from_below else "identity, outfit, gear, and marks"
     description = figure_description(
         [sequence.anchors, *look_lines(root)],
         who=who,
         pose=placement.pose,
         light=without_effects(sequence.time) or "the light of the place",
         references=(
-            "The references show this same character (turnaround view and pose sheet): take identity, outfit, "
-            "gear, and marks from them, not their white background, their layout, or their number of figures."
+            f"The references show this same character ({seen}): take {take} from them, "
+            "not their white background, their layout, or their number of figures."
         ),
         continuity=(
             "The last reference is this same figure in the previous panel: keep who it is, the outfit, and the gear. "

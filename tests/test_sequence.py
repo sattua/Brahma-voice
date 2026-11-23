@@ -389,6 +389,51 @@ def test_no_patrol_text_in_the_package():
             assert word not in text, f"{word} in {source.name}"
 
 
+def test_a_figure_that_enters_later_stays_out_of_the_earlier_panels():
+    settings = SequenceSettings(
+        action="Caminan y avanzan.",
+        figures=[
+            {"name": "lead", "character": "soldier", "pose": "Camina hacia la cámara."},
+            {"name": "sky", "character": "hunter", "pose": "Vuela lejos, visto desde el suelo."},
+        ],
+        blocking={
+            "1": [{"figure": "lead", "box": [0.4, 0.5, 0.6, 0.95], "pose": "Camina hacia la cámara por el camino."}],
+            "2": [
+                {"figure": "lead", "box": [0.4, 0.5, 0.6, 0.95], "pose": "Sigue caminando hacia la cámara."},
+                {
+                    "figure": "sky",
+                    "box": [0.6, 0.1, 0.68, 0.16],
+                    "pose": "Vuela lejos, visto desde el suelo, delante de la luna.",
+                },
+            ],
+        },
+    )
+    assert [item.name for item in settings.placements(1)] == ["lead"]
+    assert [item.name for item in settings.placements(2)] == ["lead", "sky"]
+
+
+def test_an_unblocked_panel_still_proposes_every_figure():
+    settings = SequenceSettings(
+        action="Caminan y avanzan.",
+        figures=[
+            {"name": "lead", "character": "soldier", "pose": "Camina hacia la cámara."},
+            {"name": "sky", "character": "hunter", "pose": "Vuela lejos, visto desde el suelo."},
+        ],
+    )
+    assert [item.name for item in settings.placements(1)] == ["lead", "sky"]
+
+
+def test_a_pose_from_below_uses_the_underside_sheet(tmp_path: Path):
+    from brahma.pipeline import figure_view
+
+    folder = tmp_path / "refs" / "characters"
+    folder.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "white").save(folder / "hunter-below.png")
+    seen = figure_view(tmp_path, "hunter", "front", "Vuela lejos, visto desde el suelo.")
+    assert seen == folder / "hunter-below.png"
+    assert figure_view(tmp_path, "hunter", "front", "Camina hacia la cámara.") is None
+
+
 def test_an_old_sequence_counts_its_accepted_panels_as_blocked():
     old = SequenceSettings.model_validate({"action": "Caminan por el sendero.", "accepted": [1, 2]})
     assert old.blocked == [1, 2]
